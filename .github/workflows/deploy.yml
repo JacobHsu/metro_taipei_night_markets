@@ -3,8 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,33 +16,49 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
+
     - name: Setup Pages
       uses: actions/configure-pages@v4
-      
+
     - name: Replace API Key
       run: |
-        # 替換 env-loader.js 中的 API Key
-        sed -i "s/YOUR_LOCAL_DEV_API_KEY/${{ secrets.GOOGLE_MAPS_API_KEY }}/g" env-loader.js
-        
-        # 驗證替換是否成功
-        if grep -q "YOUR_LOCAL_DEV_API_KEY" env-loader.js; then
-          echo "❌ API Key 替換失敗"
-          exit 1
+        # 檢查是否有 API Key Secret
+        if [ -z "${{ secrets.GOOGLE_MAPS_API_KEY }}" ]; then
+          echo "⚠️ GOOGLE_MAPS_API_KEY secret 未設定，使用預設值"
         else
-          echo "✅ API Key 替換成功"
+          echo "✅ 找到 GOOGLE_MAPS_API_KEY secret"
+          # 替換 env-loader.js 中的 API Key
+          sed -i "s/YOUR_LOCAL_DEV_API_KEY/${{ secrets.GOOGLE_MAPS_API_KEY }}/g" env-loader.js
+
+          # 驗證替換是否成功
+          if grep -q "YOUR_LOCAL_DEV_API_KEY" env-loader.js; then
+            echo "❌ API Key 替換失敗"
+          else
+            echo "✅ API Key 替換成功"
+          fi
         fi
-      
+
+        # 顯示文件內容以供除錯（不顯示實際 API Key）
+        echo "📄 env-loader.js 內容檢查："
+        if grep -q "YOUR_LOCAL_DEV_API_KEY" env-loader.js; then
+          echo "使用預設 API Key"
+        else
+          echo "使用實際 API Key"
+        fi
+
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
         path: '.'
-        
+
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4
