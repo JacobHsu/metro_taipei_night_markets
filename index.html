@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>台北捷運夜市地圖 (最終版)</title>
+    <style>
+        /* 基本設定 */
+        body { margin: 0; }
+        #map { height: 100vh; width: 100%; }
+
+        /* 移除連結預設樣式 */
+        .info-link { text-decoration: none; color: inherit; }
+
+        /* 自訂夜市資訊標籤的樣式 */
+        .info-label { background-color: white; padding: 10px; border: 1px solid #ccc; border-top: 4px solid #ccc; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-size: 14px; line-height: 1.5; transform: translateX(15px) translateY(-110%); white-space: nowrap; cursor: pointer; transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out; }
+        .info-label:hover { background-color: #f5f5f5; transform: translateX(15px) translateY(-110%) scale(1.03); }
+        .info-label .name { font-size: 16px; font-weight: bold; display: flex; align-items: center; }
+        .pin-icon { width: 16px; height: 16px; margin-right: 6px; fill: #E3002C; }
+
+        /* --- 新增：浮動資訊欄位的通用樣式 --- */
+        .floating-panel {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            z-index: 5; /* 確保在最上層 */
+            font-family: 'Helvetica Neue', 'Arial', 'sans-serif';
+        }
+
+        /* 右上角標題樣式 */
+        #map-title {
+            top: 10px;
+            right: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* 右下角圖例樣式 */
+        #map-legend {
+            bottom: 10px;
+            right: 10px;
+        }
+        #map-legend ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        #map-legend li {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        #map-legend li:last-child {
+            margin-bottom: 0;
+        }
+        .legend-color {
+            width: 30px; /* 拉長色塊以模仿原圖 */
+            height: 15px;
+            margin-right: 10px;
+            border-radius: 3px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- 地圖容器 -->
+    <div id="map"></div>
+
+    <!-- 新增：浮動資訊欄位 -->
+    <div id="map-title" class="floating-panel">
+        台北捷運 夜市地圖
+    </div>
+
+    <div id="map-legend" class="floating-panel">
+        <ul>
+            <li><span class="legend-color" style="background-color: #C48A31;"></span> BR 文湖線</li>
+            <li><span class="legend-color" style="background-color: #E3002C;"></span> R 淡水信義線</li>
+            <li><span class="legend-color" style="background-color: #008659;"></span> G 松山新店線</li>
+            <li><span class="legend-color" style="background-color: #F8B61C;"></span> O 中和新蘆線</li>
+            <li><span class="legend-color" style="background-color: #0070BD;"></span> BL 板南線</li>
+            <li><span class="legend-color" style="background-color: #FFDB00;"></span> Y 環狀線</li>
+        </ul>
+    </div>
+
+
+    <script>
+        const mrtLineColors = { "G": "#008659", "R": "#E3002C", "BL": "#0070BD", "O": "#F8B61C", "BR": "#C48A31", "Y": "#FFDB00" };
+        const nightMarkets = [ /* Night market data here */ ];
+        const pinIconSVG = `<svg class="pin-icon" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
+        function initMap() {
+            const map = new google.maps.Map(document.getElementById("map"), {});
+            const bounds = new google.maps.LatLngBounds();
+            class CustomLabel extends google.maps.OverlayView { constructor(position, content) { super(); this.position = position; this.content = content; this.div = null; } onAdd() { this.div = document.createElement("div"); this.div.style.position = "absolute"; this.div.innerHTML = this.content; this.getPanes().floatPane.appendChild(this.div); } draw() { const point = this.getProjection().fromLatLngToDivPixel(this.position); if (point) { this.div.style.left = `${point.x}px`; this.div.style.top = `${point.y}px`; } } onRemove() { if (this.div) { this.div.parentNode.removeChild(this.div); this.div = null; } } }
+            nightMarkets.forEach(market => {
+                const position = new google.maps.LatLng(market.coords.lat, market.coords.lng);
+                const searchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(market.name + " " + market.coords.lat + "," + market.coords.lng)}`;
+                let borderStyle = '', nameColorStyle = '';
+                const lineCodes = market.station.match(/[A-Z]{1,2}/g) || [];
+                const colors = lineCodes.map(code => mrtLineColors[code]).filter(Boolean);
+                if (colors.length === 1) { borderStyle = `border-top: 4px solid ${colors[0]};`; nameColorStyle = `color: ${colors[0]};`; } else if (colors.length > 1) { const gradientStops = colors.map((color, index, arr) => `${color} ${index * 100 / arr.length}%, ${color} ${(index + 1) * 100 / arr.length}%`).join(', '); borderStyle = `border-top: 4px solid transparent; border-image: linear-gradient(to right, ${gradientStops}) 1;`; nameColorStyle = `color: #555;`; }
+                const labelContent = `<a href="${searchUrl}" target="_blank" class="info-link"><div class="info-label" style="${borderStyle}"><div class="name" style="${nameColorStyle}">${pinIconSVG}<span>${market.name}</span></div><span>捷運: ${market.station}</span></div></a>`;
+                new CustomLabel(position, labelContent).setMap(map);
+                bounds.extend(position);
+            });
+            map.fitBounds(bounds);
+        }
+        
+        nightMarkets.push(
+            { name: "饒河街夜市", coords: { lat: 25.0509, lng: 121.5771 }, station: "松山站 (G19)" },
+            { name: "士林夜市", coords: { lat: 25.0889, lng: 121.5244 }, station: "劍潭站 (R15)" },
+            { name: "寧夏夜市", coords: { lat: 25.0565, lng: 121.5154 }, station: "雙連站 (R12)" },
+            { name: "臨江街夜市", coords: { lat: 25.0326, lng: 121.5546 }, station: "信義安和站 (R04)" },
+            { name: "師大龍泉商圈", coords: { lat: 25.0255, lng: 121.5288 }, station: "台電大樓站 (G08)" },
+            { name: "華西街夜市", coords: { lat: 25.0381, lng: 121.4988 }, station: "龍山寺站 (BL10)"},
+            { name: "艋舺夜市", coords: { lat: 25.0384, lng: 121.5000 }, station: "龍山寺站 (BL10)"},
+            { name: "南機場夜市", coords: { lat: 25.0303, lng: 121.5055 }, station: "小南門站 (G12)" },
+            { name: "樂華夜市", coords: { lat: 25.0101, lng: 121.5140 }, station: "頂溪站 (O04)" },
+            { name: "公館夜市", coords: { lat: 25.0152, lng: 121.5342 }, station: "公館站 (G07)" },
+            { name: "景美夜市", coords: { lat: 24.9930, lng: 121.5407 }, station: "景美站 (G05)" },
+            { name: "延三夜市", coords: { lat: 25.0594, lng: 121.5113 }, station: "大橋頭站 (O12)" },
+            { name: "湳雅夜市", coords: { lat: 25.0044, lng: 121.4580 }, station: "府中站 (BL06)" },
+            { name: "遼寧街夜市", coords: { lat: 25.0500, lng: 121.5413 }, station: "南京復興站 (G16/BR11)"},
+            { name: "雙城街夜市", coords: { lat: 25.0645, lng: 121.5238 }, station: "中山國小站 (O10)"},
+            { name: "737巷夜市", coords: { lat: 25.0740, lng: 121.5815 }, station: "港墘站 (BR18)" },
+            { name: "新莊廟街夜市", coords: { lat: 25.0355, lng: 121.4520 }, station: "新莊站 (O18)" },
+            { name: "石牌商城夜市", coords: { lat: 25.1147, lng: 121.5168 }, station: "石牌站 (R19)" },
+            { name: "三和夜市", coords: { lat: 25.0645, lng: 121.4983 }, station: "三重國小站 (O13)" },
+            { name: "蘆洲廟口夜市", coords: { lat: 25.0833, lng: 121.4720 }, station: "三民高中站 (O52)" },
+            { name: "興南夜市", coords: { lat: 24.9868, lng: 121.5100 }, station: "南勢角站 (O01)"},
+            { name: "吳興街商圈", coords: { lat: 25.0298, lng: 121.5658 }, station: "台北101/世貿站 (R03)" }
+        );
+
+    </script>
+
+    <!-- 嘗試載入本地配置文件（如果存在） -->
+    <script>
+        // 動態載入 config.js（如果存在）
+        function loadConfig() {
+            return new Promise((resolve) => {
+                const script = document.createElement('script');
+                script.src = 'config.js';
+                script.onload = () => {
+                    console.log('✅ config.js 載入成功');
+                    resolve(true);
+                };
+                script.onerror = () => {
+                    console.log('📝 config.js 不存在，使用其他配置方法');
+                    resolve(false);
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // 載入環境變數載入器
+        function loadEnvLoader() {
+            return new Promise((resolve) => {
+                const script = document.createElement('script');
+                script.src = 'env-loader.js';
+                script.onload = resolve;
+                script.onerror = resolve;
+                document.head.appendChild(script);
+            });
+        }
+
+        // 按順序載入配置
+        async function initializeConfig() {
+            await loadConfig();
+            await loadEnvLoader();
+            loadGoogleMapsAPI();
+        }
+    </script>
+
+    <!-- 動態載入 Google Maps JavaScript API -->
+    <script>
+        // 動態載入 Google Maps API
+        function loadGoogleMapsAPI() {
+            if (!CONFIG.GOOGLE_MAPS_API_KEY || CONFIG.GOOGLE_MAPS_API_KEY === 'YOUR_LOCAL_DEV_API_KEY') {
+                console.error('❌ Google Maps API Key 未正確設定');
+                document.getElementById('map').innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #f5f5f5; font-family: Arial, sans-serif;">
+                        <div style="text-align: center; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h2>🗺️ Google Maps API Key 未設定</h2>
+                            <p>請設定您的 Google Maps API Key：</p>
+                            <ol style="text-align: left; margin: 20px 0;">
+                                <li>編輯 <code>env-loader.js</code> 文件</li>
+                                <li>將 <code>YOUR_LOCAL_DEV_API_KEY</code> 替換為您的實際 API Key</li>
+                                <li>或在 URL 中加入 <code>?apikey=YOUR_API_KEY</code></li>
+                            </ol>
+                            <p><small>如何獲取 API Key：<a href="https://developers.google.com/maps/documentation/javascript/get-api-key" target="_blank">Google Maps API 文檔</a></small></p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.async = true;
+            script.defer = true;
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.GOOGLE_MAPS_API_KEY}&callback=initMap`;
+            script.onerror = function() {
+                console.error('❌ Google Maps API 載入失敗');
+                document.getElementById('map').innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #f5f5f5; font-family: Arial, sans-serif;">
+                        <div style="text-align: center; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h2>❌ Google Maps API 載入失敗</h2>
+                            <p>請檢查：</p>
+                            <ul style="text-align: left; margin: 20px 0;">
+                                <li>API Key 是否正確</li>
+                                <li>是否已啟用 Maps JavaScript API</li>
+                                <li>API Key 是否有使用限制</li>
+                                <li>網路連線是否正常</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            };
+            document.head.appendChild(script);
+        }
+
+        // 頁面載入完成後初始化配置
+        document.addEventListener('DOMContentLoaded', initializeConfig);
+    </script>
+</body>
+</html>

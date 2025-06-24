@@ -1,0 +1,49 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+      
+    - name: Replace API Key
+      run: |
+        # 替換 env-loader.js 中的 API Key
+        sed -i "s/YOUR_LOCAL_DEV_API_KEY/${{ secrets.GOOGLE_MAPS_API_KEY }}/g" env-loader.js
+        
+        # 驗證替換是否成功
+        if grep -q "YOUR_LOCAL_DEV_API_KEY" env-loader.js; then
+          echo "❌ API Key 替換失敗"
+          exit 1
+        else
+          echo "✅ API Key 替換成功"
+        fi
+      
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: '.'
+        
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
